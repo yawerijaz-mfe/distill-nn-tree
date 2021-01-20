@@ -1,7 +1,8 @@
 def brand_new_tfsession(sess=None):
 
-    import tensorflow as tf
-    from tensorflow.keras.backend import set_session
+    import tensorflow.compat.v1 as tf
+    tf.disable_v2_behavior()
+    # from tensorflow.keras.backend import set_session
 
     if sess:
         tf.reset_default_graph()
@@ -11,7 +12,7 @@ def brand_new_tfsession(sess=None):
     config = tf.ConfigProto()
     config.gpu_options.allow_growth = True
     sess = tf.Session(config=config)
-    set_session(sess)
+    tf.keras.backend.set_session(sess)
 
     return sess
 
