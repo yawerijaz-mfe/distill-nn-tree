@@ -135,11 +135,19 @@ class OutputLayer(Layer):
             from_keras_tensor, arguments={'elems': elems})(opinions)
         return outputs # shape=(batch_size,n_classes)
 
+class SoftOutputLayer(Layer):
+    def call(self, input):
+        opinions, weights = input
+        opinions = Concatenate(axis=0)(opinions) # shape=(n_bigots,n_classes)
+        weights = Concatenate(axis=1)(weights) # shape=(batch_size,n_bigots)
+        outputs = weights @ opinions
+        return outputs # shape=(batch_size,n_classes)
+
 
 class SoftBinaryDecisionTree(object):
     def __init__(self, max_depth, n_features, n_classes,
                  penalty_strength=10.0, penalty_decay=0.5, inv_temp=0.01,
-                 ema_win_size=100, learning_rate=3e-4, metrics=['acc']):
+                 ema_win_size=100, learning_rate=3e-4, metrics=['acc', 'AUC']):
         '''Initialize model instance by saving parameter values
         as model properties and creating others as placeholders.
         '''
@@ -258,6 +266,14 @@ class SoftBinaryDecisionTree(object):
         self.saver.restore(sess, path)
         self.initialized = True
 
+    def train(self, sess, data_train, data_valid,
+                    batch_size, epochs, callbacks=None):
+        x_train, y_train = data_train
+        self.initialize_variables(sess, x_train, batch_size)
+        self.model.fit(
+            x_train, y_train, validation_data=data_valid,
+            batch_size=batch_size, epochs=epochs, callbacks=callbacks)
+
     def maybe_train(self, sess, data_train, data_valid,
                     batch_size, epochs, callbacks=None, distill=False):
 
@@ -274,11 +290,7 @@ class SoftBinaryDecisionTree(object):
         except ValueError as e:
             print('{} is not a valid checkpoint. Training from scratch.'.format(
                 PATH_MODEL))
-            x_train, y_train = data_train
-            self.initialize_variables(sess, x_train, batch_size)
-            self.model.fit(
-                x_train, y_train, validation_data=data_valid,
-                batch_size=batch_size, epochs=epochs, callbacks=callbacks)
+            self.train(sess, data_train, data_valid, batch_size, epochs, callbacks)
             print('Saving trained model to {}.'.format(PATH_MODEL))
             if not os.path.isdir(DIR_MODEL):
                 os.mkdir(DIR_MODEL)
