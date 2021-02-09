@@ -8,6 +8,7 @@ from tensorflow.keras.layers import (Input, Dense, Activation, Layer, Lambda,
                                      Concatenate)
 from tensorflow.keras.models import Model, load_model
 from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.regularizers import l1_l2
 
 
 class TrainableVar(Layer):
@@ -73,7 +74,8 @@ class Node(object):
             return Activation('sigmoid', name='prob_' + self.id)(
                 self.dense_scaled)
         else:
-            return Activation('softmax', name='pdist_' + self.id)(self.phi)
+            self.leaf_activation = Activation('softmax', name='pdist_' + self.id)(self.phi)
+            return self.leaf_activation
 
     def get_penalty(self, tree):
         '''From paper: "... we can maintain an exponentially decaying running
@@ -143,11 +145,12 @@ class SoftOutputLayer(Layer):
         outputs = weights @ opinions
         return outputs # shape=(batch_size,n_classes)
 
+OutputLayer = SoftOutputLayer
 
 class SoftBinaryDecisionTree(object):
     def __init__(self, max_depth, n_features, n_classes,
                  penalty_strength=10.0, penalty_decay=0.5, inv_temp=0.01,
-                 ema_win_size=100, learning_rate=3e-4, metrics=['acc', 'AUC']):
+                 ema_win_size=100, learning_rate=3e-4, dispersion_penalty=0.5, metrics=['acc', 'AUC'], verbose=False):
         '''Initialize model instance by saving parameter values
         as model properties and creating others as placeholders.
         '''
@@ -161,6 +164,8 @@ class SoftBinaryDecisionTree(object):
         self.penalty_decay = penalty_decay
         self.inv_temp = inv_temp
         self.ema_win_size = ema_win_size
+
+        self.dispersion_penalty = dispersion_penalty
 
         self.nodes = list()
         self.bigot_opinions = list()
@@ -176,6 +181,7 @@ class SoftBinaryDecisionTree(object):
 
         self.eps = tfk.constant(1e-8, shape=(1,), dtype='float32')
         self.initialized = False
+        self.verbose = verbose
 
     def build_model(self):
         self.input_layer = Input(shape=(self.n_features,), dtype='float32')
@@ -208,9 +214,19 @@ class SoftBinaryDecisionTree(object):
                     self.loss_penalty += node.get_loss(y=None, tree=self)
                     self.ema_apply_ops.append(node.ema_apply_op)
 
+            leaf_activations = [node.leaf_activation for node in self.nodes if node.isLeaf]
+            leaf_activations = Concatenate(axis=0)(leaf_activations)
+            leaf_dispersion = tfk.var(leaf_activations, axis=0)
+            leaf_dispersion = tfk.sum(leaf_dispersion)
+            
             with tf.control_dependencies(self.ema_apply_ops):
-                self.loss = tf.log(
-                    self.eps + self.loss_leaves) + self.loss_penalty
+                log_leaf_loss = tf.log(self.eps + self.loss_leaves)
+                loss_penalty = self.loss_penalty
+                if self.verbose:
+                    leaf_dispersion = tfk.print_tensor(leaf_dispersion, message='leaf_dispersion = ')
+                    log_leaf_loss = tfk.print_tensor(log_leaf_loss, message='log_leaf_loss = ')
+                    loss_penalty = tfk.print_tensor(loss_penalty, message='loss_penalty = ')
+                self.loss = log_leaf_loss + loss_penalty - tfk.log(leaf_dispersion) * self.dispersion_penalty
             return self.loss
 
         self.output_layer = OutputLayer()(
