@@ -54,7 +54,10 @@ class Node(object):
             self.dense = Dense(
                 units=1, name='dense_'+self.id, dtype='float32',
                 kernel_initializer=RandomNormal(),
-                bias_initializer=TruncatedNormal())(tree.input_layer)
+                bias_initializer=TruncatedNormal(),
+                kernel_regularizer='l1_l2',
+                bias_regularizer='l1_l2'
+                )(tree.input_layer)
 
     def build(self, tree):
         '''Defines the output probability of the node and builds child nodes.'''
@@ -206,28 +209,28 @@ class SoftBinaryDecisionTree(object):
                 self.nodes.append(node.leftChild)
                 self.nodes.append(node.rightChild)
 
-        def tree_loss(y_true, y_pred):
-            for node in self.nodes:
-                if node.isLeaf:
-                    self.loss_leaves += node.get_loss(y=y_true, tree=self)
-                else:
-                    self.loss_penalty += node.get_loss(y=None, tree=self)
-                    self.ema_apply_ops.append(node.ema_apply_op)
+        # def tree_loss(y_true, y_pred):
+        #     for node in self.nodes:
+        #         if node.isLeaf:
+        #             self.loss_leaves += node.get_loss(y=y_true, tree=self)
+        #         else:
+        #             self.loss_penalty += node.get_loss(y=None, tree=self)
+        #             self.ema_apply_ops.append(node.ema_apply_op)
 
-            leaf_activations = [node.leaf_activation for node in self.nodes if node.isLeaf]
-            leaf_activations = Concatenate(axis=0)(leaf_activations)
-            leaf_dispersion = tfk.var(leaf_activations, axis=0)
-            leaf_dispersion = tfk.sum(leaf_dispersion)
+        #     leaf_activations = [node.leaf_activation for node in self.nodes if node.isLeaf]
+        #     leaf_activations = Concatenate(axis=0)(leaf_activations)
+        #     leaf_dispersion = tfk.var(leaf_activations, axis=0)
+        #     leaf_dispersion = tfk.sum(leaf_dispersion)
             
-            with tf.control_dependencies(self.ema_apply_ops):
-                log_leaf_loss = tf.log(self.eps + self.loss_leaves)
-                loss_penalty = self.loss_penalty
-                if self.verbose:
-                    leaf_dispersion = tfk.print_tensor(leaf_dispersion, message='leaf_dispersion = ')
-                    log_leaf_loss = tfk.print_tensor(log_leaf_loss, message='log_leaf_loss = ')
-                    loss_penalty = tfk.print_tensor(loss_penalty, message='loss_penalty = ')
-                self.loss = log_leaf_loss + loss_penalty - tfk.log(leaf_dispersion) * self.dispersion_penalty
-            return self.loss
+        #     with tf.control_dependencies(self.ema_apply_ops):
+        #         log_leaf_loss = tf.log(self.eps + self.loss_leaves)
+        #         loss_penalty = self.loss_penalty
+        #         if self.verbose:
+        #             leaf_dispersion = tfk.print_tensor(leaf_dispersion, message='leaf_dispersion = ')
+        #             log_leaf_loss = tfk.print_tensor(log_leaf_loss, message='log_leaf_loss = ')
+        #             loss_penalty = tfk.print_tensor(loss_penalty, message='loss_penalty = ')
+        #         self.loss = log_leaf_loss # + loss_penalty - tfk.log(leaf_dispersion) * self.dispersion_penalty
+        #     return self.loss
 
         self.output_layer = OutputLayer()(
             [self.bigot_opinions, self.bigot_weights])
@@ -237,7 +240,7 @@ class SoftBinaryDecisionTree(object):
 
         self.model = Model(inputs=self.input_layer, outputs=self.output_layer)
 
-        self.model.compile(optimizer=self.optimizer, loss=tree_loss,
+        self.model.compile(optimizer=self.optimizer, loss='categorical_crossentropy',
                            metrics=self.metrics)
 
         self.saver = tf.train.Saver()
