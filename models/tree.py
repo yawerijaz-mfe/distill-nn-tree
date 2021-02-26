@@ -38,7 +38,7 @@ class Scale(Layer):
         return input[0] * input[1]
 
 class Node(object):
-    def __init__(self, id, depth, pathprob, tree):
+    def __init__(self, id, depth, pathprob, tree, l1_reg=None, l2_reg=None):
         self.id = id
         self.depth = depth
         self.pathprob = pathprob
@@ -55,8 +55,8 @@ class Node(object):
                 units=1, name='dense_'+self.id, dtype='float32',
                 kernel_initializer=RandomNormal(),
                 bias_initializer=TruncatedNormal(),
-                kernel_regularizer='l1_l2',
-                bias_regularizer='l1_l2'
+                # kernel_regularizer=l1_l2(l1_reg, l2_reg),
+                # bias_regularizer=l1_l2(l1_reg, l2_reg)
                 )(tree.input_layer)
 
     def build(self, tree):
@@ -153,7 +153,7 @@ OutputLayer = SoftOutputLayer
 class SoftBinaryDecisionTree(object):
     def __init__(self, max_depth, n_features, n_classes,
                  penalty_strength=10.0, penalty_decay=0.5, inv_temp=0.01,
-                 ema_win_size=100, learning_rate=3e-4, dispersion_penalty=0.5, metrics=['acc', 'AUC'], verbose=False):
+                 ema_win_size=100, learning_rate=3e-4, dispersion_penalty=0.5, metrics=['acc', 'AUC'], verbose=False, l1_reg=0, l2_reg=0):
         '''Initialize model instance by saving parameter values
         as model properties and creating others as placeholders.
         '''
@@ -186,6 +186,9 @@ class SoftBinaryDecisionTree(object):
         self.initialized = False
         self.verbose = verbose
 
+        self.l1_reg = l1_reg
+        self.l2_reg = l2_reg
+
     def build_model(self):
         self.input_layer = Input(shape=(self.n_features,), dtype='float32')
 
@@ -197,7 +200,9 @@ class SoftBinaryDecisionTree(object):
                 initializer=RandomNormal())(self.input_layer)
 
         self.root = Node(
-            id='0', depth=0, pathprob=Constant()(self.input_layer), tree=self)
+            id='0', depth=0, pathprob=Constant()(self.input_layer), tree=self,
+            l1_reg=self.l1_reg, l2_reg=self.l2_reg
+            )
         self.nodes.append(self.root)
 
         for node in self.nodes:
