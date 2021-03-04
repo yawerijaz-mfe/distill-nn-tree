@@ -157,7 +157,7 @@ class SoftBinaryDecisionTree(object):
         '''Initialize model instance by saving parameter values
         as model properties and creating others as placeholders.
         '''
-
+ 
         # save hyperparameters
         self.max_depth = max_depth
         self.n_features = n_features
